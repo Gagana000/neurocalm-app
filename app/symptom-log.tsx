@@ -1,3 +1,4 @@
+// app/symptom-log.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Animated, View, Pressable, Platform } from "react-native";
 import Slider from "@react-native-community/slider";
@@ -75,6 +76,8 @@ export default function SymptomLog() {
   const levelColor =
     preview.level === "High"
       ? theme.colors.danger
+      : preview.level === "Very High"
+      ? theme.colors.danger
       : preview.level === "Medium"
       ? theme.colors.primary2
       : theme.colors.border;
@@ -88,12 +91,12 @@ export default function SymptomLog() {
     }
 
     if (selected.length === 0) {
-      Alert.alert("Select symptoms", "Pick at least one symptom.");
+      Alert.alert("Select symptoms", "Pick at least one symptom to get accurate analysis.");
       return;
     }
 
     if (stressfulEvent === null || intentionalSleepLoss === null) {
-      Alert.alert("Complete check-in", "Please answer the context questions.");
+      Alert.alert("Complete check-in", "Please answer the context questions for better insights.");
       return;
     }
 
@@ -129,7 +132,7 @@ export default function SymptomLog() {
 
   return (
     <Screen>
-      <AppHeader title="Quick check-in" />
+      <AppHeader title="Quick Check-in" />
 
       <View style={{ gap: theme.space.xl }}>
         {/* Live preview */}
@@ -145,9 +148,12 @@ export default function SymptomLog() {
         >
           <View style={{ gap: 10 }}>
             <View>
-              <AppText style={{ fontWeight: "900" }}>Live Stress Preview</AppText>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <AppText style={{ fontSize: 24 }}>📊</AppText>
+                <AppText style={{ fontWeight: "900" }}>Live Stress Preview</AppText>
+              </View>
               <AppText variant="sub">
-                Score now uses symptoms, sleep, mood, self-rated stress, and daily context.
+                Your stress score updates as you answer
               </AppText>
             </View>
 
@@ -159,8 +165,14 @@ export default function SymptomLog() {
                   paddingVertical: 8,
                   paddingHorizontal: 12,
                   borderRadius: 999,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 6,
                 }}
               >
+                <AppText style={{ fontSize: 16 }}>
+                  {preview.level === "High" ? "⚠️" : preview.level === "Medium" ? "😐" : "😊"}
+                </AppText>
                 <AppText style={{ fontWeight: "900" }}>
                   {preview.level} • {preview.score}
                 </AppText>
@@ -170,7 +182,7 @@ export default function SymptomLog() {
         </View>
 
         {/* Symptoms */}
-        <SectionCard title="Symptoms" subtitle="Select what you noticed today.">
+        <SectionCard title="Symptoms" subtitle="Select what you noticed today">
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.space.sm }}>
             {SYMPTOMS.map((s) => (
               <Chip
@@ -190,8 +202,8 @@ export default function SymptomLog() {
               ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
             })}
           >
-            <AppText variant="small" style={{ textDecorationLine: "underline" }}>
-              Clear symptoms
+            <AppText variant="small" style={{ textDecorationLine: "underline", opacity: 0.7 }}>
+              Clear all symptoms
             </AppText>
           </Pressable>
         </SectionCard>
@@ -200,65 +212,80 @@ export default function SymptomLog() {
         <View style={{ gap: theme.space.lg }}>
           <SliderField
             title="Sleep"
+            emoji="😴"
             valueLabel={`${sleepHours.toFixed(1)} hours`}
             value={sleepHours}
             min={0}
             max={12}
             step={0.5}
             onChange={setSleepHours}
-            hint="Sleep matters, but it is not treated as stress by itself."
+            hint="Quality sleep helps manage stress"
           />
 
           <SliderField
             title="Mood"
+            emoji={getMoodEmoji(mood)}
             valueLabel={`${mood}/5`}
             value={mood}
             min={1}
             max={5}
             step={1}
             onChange={setMood}
-            hint="Lower mood increases stress score."
+            hint="How would you rate your overall mood today?"
           />
 
           <SliderField
-            title="How stressed did you feel today?"
+            title="Self-rated Stress"
+            emoji="📊"
             valueLabel={`${selfStress}/5`}
             value={selfStress}
             min={0}
             max={5}
             step={1}
             onChange={setSelfStress}
-            hint="This helps the app understand your real stress level."
+            hint="How stressed did you feel today?"
           />
         </View>
 
         {/* Context */}
         <SectionCard
           title="Context"
-          subtitle="These questions reduce false stress results, for example after a party or intentional late night."
+          subtitle="These help us understand your situation better"
         >
           <BinaryQuestion
             title="Did a stressful event happen today?"
+            emoji="⚠️"
             value={stressfulEvent}
             onChange={setStressfulEvent}
           />
 
           <BinaryQuestion
             title="Was your poor sleep intentional?"
+            emoji="🎮"
             value={intentionalSleepLoss}
             onChange={setIntentionalSleepLoss}
           />
 
           <ChoiceQuestion
             title="Energy level"
-            options={["Low", "Normal", "High"]}
+            emoji="⚡"
+            options={[
+              { value: "Low", emoji: "🪫", label: "Low" },
+              { value: "Normal", emoji: "🔋", label: "Normal" },
+              { value: "High", emoji: "⚡", label: "High" }
+            ]}
             value={energyLevel}
             onChange={(v) => setEnergyLevel(v as EnergyLevel)}
           />
 
           <ChoiceQuestion
             title="Did you enjoy your activities today?"
-            options={["No", "Somewhat", "Yes"]}
+            emoji="🎉"
+            options={[
+              { value: "No", emoji: "😞", label: "No" },
+              { value: "Somewhat", emoji: "😐", label: "Somewhat" },
+              { value: "Yes", emoji: "😊", label: "Yes" }
+            ]}
             value={enjoyment}
             onChange={(v) => setEnjoyment(v as EnjoymentLevel)}
           />
@@ -295,7 +322,13 @@ function SectionCard({
       }}
     >
       <View style={{ gap: 6 }}>
-        <AppText style={{ fontWeight: "900" }}>{title}</AppText>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <AppText style={{ fontSize: 20 }}>
+            {title === "Symptoms" && "🔍"}
+            {title === "Context" && "📋"}
+          </AppText>
+          <AppText style={{ fontWeight: "900" }}>{title}</AppText>
+        </View>
         {subtitle ? <AppText variant="sub">{subtitle}</AppText> : null}
       </View>
       {children}
@@ -305,6 +338,7 @@ function SectionCard({
 
 function SliderField({
   title,
+  emoji,
   valueLabel,
   hint,
   value,
@@ -314,6 +348,7 @@ function SliderField({
   onChange,
 }: {
   title: string;
+  emoji: string;
   valueLabel: string;
   hint?: string;
   value: number;
@@ -334,7 +369,10 @@ function SliderField({
       }}
     >
       <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
-        <AppText style={{ fontWeight: "900" }}>{title}</AppText>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <AppText style={{ fontSize: 20 }}>{emoji}</AppText>
+          <AppText style={{ fontWeight: "900" }}>{title}</AppText>
+        </View>
         <AppText style={{ fontWeight: "900" }}>{valueLabel}</AppText>
       </View>
 
@@ -361,16 +399,21 @@ function SliderField({
 
 function BinaryQuestion({
   title,
+  emoji,
   value,
   onChange,
 }: {
   title: string;
+  emoji: string;
   value: boolean | null;
   onChange: (v: boolean) => void;
 }) {
   return (
     <View style={{ gap: 10 }}>
-      <AppText style={{ fontWeight: "900" }}>{title}</AppText>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <AppText style={{ fontSize: 18 }}>{emoji}</AppText>
+        <AppText style={{ fontWeight: "900" }}>{title}</AppText>
+      </View>
       <View style={{ flexDirection: "row", gap: theme.space.sm, flexWrap: "wrap" }}>
         <ChoiceChip label="Yes" selected={value === true} onPress={() => onChange(true)} />
         <ChoiceChip label="No" selected={value === false} onPress={() => onChange(false)} />
@@ -381,21 +424,31 @@ function BinaryQuestion({
 
 function ChoiceQuestion({
   title,
+  emoji,
   options,
   value,
   onChange,
 }: {
   title: string;
-  options: string[];
+  emoji: string;
+  options: Array<{ value: string; emoji: string; label: string }>;
   value: string;
   onChange: (v: string) => void;
 }) {
   return (
     <View style={{ gap: 10 }}>
-      <AppText style={{ fontWeight: "900" }}>{title}</AppText>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <AppText style={{ fontSize: 18 }}>{emoji}</AppText>
+        <AppText style={{ fontWeight: "900" }}>{title}</AppText>
+      </View>
       <View style={{ flexDirection: "row", gap: theme.space.sm, flexWrap: "wrap" }}>
         {options.map((opt) => (
-          <ChoiceChip key={opt} label={opt} selected={value === opt} onPress={() => onChange(opt)} />
+          <ChoiceChip
+            key={opt.value}
+            label={`${opt.emoji} ${opt.label}`}
+            selected={value === opt.value}
+            onPress={() => onChange(opt.value)}
+          />
         ))}
       </View>
     </View>
@@ -428,4 +481,11 @@ function ChoiceChip({
       <AppText style={{ fontWeight: "900" }}>{label}</AppText>
     </Pressable>
   );
+}
+
+// Helper functions
+function getMoodEmoji(mood: number): string {
+  if (mood <= 2) return "😔";
+  if (mood === 3) return "😐";
+  return "😊";
 }

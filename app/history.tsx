@@ -1,3 +1,4 @@
+// app/history.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -25,7 +26,7 @@ import {
   DocumentData,
 } from "firebase/firestore";
 
-import { LineChart, BarChart } from "react-native-gifted-charts";
+import { LineChart, BarChart, PieChart } from "react-native-gifted-charts";
 
 import { auth, db } from "../src/firebase/firebaseConfig";
 import { Screen } from "../src/ui/Screen";
@@ -176,6 +177,45 @@ export default function HistoryScreen() {
   const stats = useMemo(() => computeStats(logs), [logs]);
   const insight = useMemo(() => buildInsight(logs), [logs]);
 
+  // Get descriptive metrics with emojis and colors
+  const getAverageRating = () => {
+    const score = stats.avgScore;
+    if (score <= 15) return { emoji: "🌟", text: "Excellent", description: "Your stress is well managed", color: "#22c55e" };
+    if (score <= 30) return { emoji: "👍", text: "Good", description: "Managing stress effectively", color: "#6C8CFF" };
+    if (score <= 45) return { emoji: "😐", text: "Moderate", description: "Room for improvement", color: "#facc15" };
+    return { emoji: "⚠️", text: "Elevated", description: "Stress levels need attention", color: "#ef4444" };
+  };
+
+  const getHighestRating = () => {
+    const score = stats.maxScore;
+    if (score <= 20) return { emoji: "😊", text: "Mild", description: "Occasional stress spikes", color: "#22c55e" };
+    if (score <= 40) return { emoji: "😐", text: "Moderate", description: "Noticeable stress peaks", color: "#facc15" };
+    if (score <= 60) return { emoji: "⚠️", text: "High", description: "Significant stress episodes", color: "#ef4444" };
+    return { emoji: "🚨", text: "Very High", description: "Frequent high stress", color: "#ef4444" };
+  };
+
+  const getCheckInsRating = () => {
+    const count = stats.count;
+    if (count === 0) return { emoji: "🌱", text: "Just Starting", description: "Begin your journey", color: "#22C3A6" };
+    if (count < 7) return { emoji: "🌿", text: "Building", description: `${count} days • Keep going`, color: "#22C3A6" };
+    if (count < 14) return { emoji: "🌻", text: "Consistent", description: `${count} days • Great habit`, color: "#22C3A6" };
+    if (count < 30) return { emoji: "🏆", text: "Dedicated", description: `${count} days • Excellent`, color: "#22C3A6" };
+    return { emoji: "💪", text: "Champion", description: `${count} days • Unstoppable`, color: "#22C3A6" };
+  };
+
+  const getBestMoodRating = () => {
+    const mood = stats.bestMood;
+    if (mood <= 2) return { emoji: "😔", text: "Low", description: "Mood needs attention", color: "#ef4444" };
+    if (mood === 3) return { emoji: "😐", text: "Neutral", description: "Stable but could improve", color: "#facc15" };
+    if (mood === 4) return { emoji: "🙂", text: "Good", description: "Positive mood days", color: "#6C8CFF" };
+    return { emoji: "😊", text: "Excellent", description: "Great mood peaks", color: "#22c55e" };
+  };
+
+  const averageRating = getAverageRating();
+  const highestRating = getHighestRating();
+  const checkInsRating = getCheckInsRating();
+  const bestMoodRating = getBestMoodRating();
+
   const filtered = useMemo(() => {
     const q = searchText.trim().toLowerCase();
     let out = logs.slice();
@@ -212,11 +252,14 @@ export default function HistoryScreen() {
 
   const groups = useMemo(() => groupByLevel(filtered), [filtered]);
 
-  const line = useMemo(() => buildLineSeries(logs), [logs]);
-  const dist = useMemo(() => buildDist(logs), [logs]);
-  const sleepBars = useMemo(() => buildSleepBars(logs), [logs]);
-  const stressBars = useMemo(() => buildSelfStressBars(logs), [logs]);
-  const symptomBars = useMemo(() => buildTopSymptomsBars(logs), [logs]);
+  // Chart Data
+  const lineData = useMemo(() => buildLineSeries(logs), [logs]);
+  const pieData = useMemo(() => buildPieChart(logs), [logs]);
+  const sleepVsStressData = useMemo(() => buildSleepVsStressBars(logs), [logs]);
+  const selfStressVsScoreData = useMemo(() => buildSelfStressBars(logs), [logs]);
+  const moodVsStressData = useMemo(() => buildMoodVsStressBars(logs), [logs]);
+  const energyVsStressData = useMemo(() => buildEnergyVsStressBars(logs), [logs]);
+  const symptomFrequencyData = useMemo(() => buildSymptomFrequencyBars(logs), [logs]);
 
   const openLog = (id: string) => {
     router.push({ pathname: "/result", params: { logId: id } });
@@ -243,11 +286,11 @@ export default function HistoryScreen() {
 
   return (
     <Screen>
-      <AppHeader title="History" />
+      <AppHeader title="History & Analytics" />
 
       <InfoCard />
 
-      <View style={{ flexDirection: "row", gap: theme.space.sm, marginBottom: theme.space.lg }}>
+      <View style={{ flexDirection: "row", gap: theme.space.sm, marginBottom: theme.space.lg, flexWrap: "wrap" }}>
         {ranges.map((r) => (
           <ChipButton
             key={r.key}
@@ -258,11 +301,36 @@ export default function HistoryScreen() {
         ))}
       </View>
 
+      {/* Stats Grid with Descriptive Metrics */}
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: theme.space.md }}>
-        <StatCard title="Average score" value={stats.avgScore.toFixed(1)} />
-        <StatCard title="Highest score" value={String(stats.maxScore)} />
-        <StatCard title="Check-ins" value={String(logs.length)} />
-        <StatCard title="7-day trend" value={stats.delta7 >= 0 ? `+${stats.delta7}` : String(stats.delta7)} />
+        <DescriptiveStatCard
+          title="📊 Average Stress"
+          emoji={averageRating.emoji}
+          value={averageRating.text}
+          description={`${stats.avgScore.toFixed(1)} score • ${averageRating.description}`}
+          color={averageRating.color}
+        />
+        <DescriptiveStatCard
+          title="📈 Highest Peak"
+          emoji={highestRating.emoji}
+          value={highestRating.text}
+          description={`${stats.maxScore} score • ${highestRating.description}`}
+          color={highestRating.color}
+        />
+        <DescriptiveStatCard
+          title="📅 Check-ins"
+          emoji={checkInsRating.emoji}
+          value={checkInsRating.text}
+          description={checkInsRating.description}
+          color={checkInsRating.color}
+        />
+        <DescriptiveStatCard
+          title="😊 Best Mood"
+          emoji={bestMoodRating.emoji}
+          value={bestMoodRating.text}
+          description={`${stats.bestMood}/5 • ${bestMoodRating.description}`}
+          color={bestMoodRating.color}
+        />
       </View>
 
       <View style={{ marginTop: theme.space.lg }}>
@@ -270,12 +338,16 @@ export default function HistoryScreen() {
       </View>
 
       <View style={{ gap: theme.space.xl, marginTop: theme.space.xl }}>
-        <ChartCard title="Stress trend" subtitle="Daily average score">
-          {line.length >= 2 ? (
+        {/* Line Chart - Stress Trend Over Time */}
+        <ChartCard
+          title="📈 Stress Trend"
+          subtitle="X-axis: Date • Y-axis: Stress Score (0-100)"
+        >
+          {lineData.length >= 2 ? (
             <View style={{ paddingHorizontal: CHART_SIDE_PAD }}>
               <LineChart
                 width={chartW - CHART_SIDE_PAD * 2}
-                data={line}
+                data={lineData}
                 curved
                 thickness={3}
                 color={theme.colors.primary}
@@ -294,21 +366,61 @@ export default function HistoryScreen() {
                 xAxisLabelTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "700" }}
                 initialSpacing={8}
                 endSpacing={8}
+                yAxisLabelPrefix=""
+                yAxisLabelSuffix=""
               />
             </View>
           ) : (
-            <EmptyHint />
+            <EmptyHint text="Need at least 2 check-ins to show trend" />
           )}
         </ChartCard>
 
-        <ChartCard title="Stress distribution" subtitle="Low / Medium / High">
-          {dist.length ? (
+        {/* Pie Chart - Stress Level Distribution */}
+        <ChartCard
+          title="🥧 Stress Distribution"
+          subtitle="Percentage breakdown by stress level"
+        >
+          {pieData.length > 0 ? (
+            <View style={{ alignItems: "center", paddingVertical: 20 }}>
+              <PieChart
+                data={pieData}
+                donut
+                showGradient
+                sectionAutoFocus
+                radius={100}
+                innerRadius={60}
+                innerCircleColor={theme.colors.card}
+                centerLabelComponent={() => (
+                  <View style={{ alignItems: "center" }}>
+                    <AppText style={{ fontSize: 20, fontWeight: "800", color: theme.colors.text }}>
+                      {logs.length}
+                    </AppText>
+                    <AppText variant="small" style={{ fontSize: 10 }}>total</AppText>
+                  </View>
+                )}
+                textColor="white"
+                textSize={12}
+                focusOnPress
+                showValuesAsLabels
+              />
+            </View>
+          ) : (
+            <EmptyHint text="No data available" />
+          )}
+        </ChartCard>
+
+        {/* Bar Chart - Sleep vs Stress */}
+        <ChartCard
+          title="😴 Sleep vs Stress"
+          subtitle="X-axis: Sleep Hours • Y-axis: Average Stress Score"
+        >
+          {sleepVsStressData.some((b) => b.value > 0) ? (
             <View style={{ paddingHorizontal: CHART_SIDE_PAD }}>
               <BarChart
                 width={chartW - CHART_SIDE_PAD * 2}
-                data={dist}
-                barWidth={26}
-                spacing={30}
+                data={sleepVsStressData}
+                barWidth={32}
+                spacing={28}
                 roundedTop
                 rulesColor="rgba(255,255,255,0.06)"
                 yAxisColor="rgba(255,255,255,0.20)"
@@ -316,73 +428,116 @@ export default function HistoryScreen() {
                 yAxisTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "700" }}
                 xAxisLabelTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "800" }}
                 noOfSections={4}
-                maxValue={Math.max(...dist.map((d) => d.value), 1)}
+                maxValue={Math.max(...sleepVsStressData.map((d) => d.value), 10)}
+                initialSpacing={12}
+                endSpacing={12}
+                yAxisLabelPrefix=""
+                yAxisLabelSuffix=""
+              />
+            </View>
+          ) : (
+            <EmptyHint text="Need more sleep data" />
+          )}
+        </ChartCard>
+
+        {/* Bar Chart - Self-rated Stress vs Actual Score */}
+        <ChartCard
+          title="📊 Self-Stress vs Score"
+          subtitle="X-axis: Self Rating (0-5) • Y-axis: Actual Stress Score"
+        >
+          {selfStressVsScoreData.some((b) => b.value > 0) ? (
+            <View style={{ paddingHorizontal: CHART_SIDE_PAD }}>
+              <BarChart
+                width={chartW - CHART_SIDE_PAD * 2}
+                data={selfStressVsScoreData}
+                barWidth={32}
+                spacing={22}
+                roundedTop
+                rulesColor="rgba(255,255,255,0.06)"
+                yAxisColor="rgba(255,255,255,0.20)"
+                xAxisColor="rgba(255,255,255,0.20)"
+                yAxisTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "700" }}
+                xAxisLabelTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "800" }}
+                noOfSections={4}
+                maxValue={Math.max(...selfStressVsScoreData.map((d) => d.value), 10)}
+                initialSpacing={12}
+                endSpacing={12}
+              />
+            </View>
+          ) : (
+            <EmptyHint text="Need more self-stress data" />
+          )}
+        </ChartCard>
+
+        {/* Bar Chart - Mood vs Stress */}
+        <ChartCard
+          title="😊 Mood vs Stress"
+          subtitle="X-axis: Mood (1-5) • Y-axis: Average Stress Score"
+        >
+          {moodVsStressData.some((b) => b.value > 0) ? (
+            <View style={{ paddingHorizontal: CHART_SIDE_PAD }}>
+              <BarChart
+                width={chartW - CHART_SIDE_PAD * 2}
+                data={moodVsStressData}
+                barWidth={32}
+                spacing={28}
+                roundedTop
+                rulesColor="rgba(255,255,255,0.06)"
+                yAxisColor="rgba(255,255,255,0.20)"
+                xAxisColor="rgba(255,255,255,0.20)"
+                yAxisTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "700" }}
+                xAxisLabelTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "800" }}
+                noOfSections={4}
+                maxValue={Math.max(...moodVsStressData.map((d) => d.value), 10)}
+                initialSpacing={12}
+                endSpacing={12}
+              />
+            </View>
+          ) : (
+            <EmptyHint text="Need more mood data" />
+          )}
+        </ChartCard>
+
+        {/* Bar Chart - Energy vs Stress */}
+        <ChartCard
+          title="⚡ Energy vs Stress"
+          subtitle="X-axis: Energy Level • Y-axis: Average Stress Score"
+        >
+          {energyVsStressData.some((b) => b.value > 0) ? (
+            <View style={{ paddingHorizontal: CHART_SIDE_PAD }}>
+              <BarChart
+                width={chartW - CHART_SIDE_PAD * 2}
+                data={energyVsStressData}
+                barWidth={32}
+                spacing={50}
+                roundedTop
+                rulesColor="rgba(255,255,255,0.06)"
+                yAxisColor="rgba(255,255,255,0.20)"
+                xAxisColor="rgba(255,255,255,0.20)"
+                yAxisTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "700" }}
+                xAxisLabelTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "800" }}
+                noOfSections={4}
+                maxValue={Math.max(...energyVsStressData.map((d) => d.value), 10)}
                 initialSpacing={20}
                 endSpacing={20}
               />
             </View>
           ) : (
-            <EmptyHint />
+            <EmptyHint text="Need more energy data" />
           )}
         </ChartCard>
 
-        <ChartCard title="Sleep vs Stress" subtitle="Average stress by sleep range">
-          {sleepBars.some((b) => b.value > 0) ? (
+        {/* Bar Chart - Top Symptoms Frequency */}
+        <ChartCard
+          title="🔍 Common Symptoms"
+          subtitle="X-axis: Symptom • Y-axis: Frequency"
+        >
+          {symptomFrequencyData.length > 0 ? (
             <View style={{ paddingHorizontal: CHART_SIDE_PAD }}>
               <BarChart
                 width={chartW - CHART_SIDE_PAD * 2}
-                data={sleepBars}
-                barWidth={22}
-                spacing={20}
-                roundedTop
-                rulesColor="rgba(255,255,255,0.06)"
-                yAxisColor="rgba(255,255,255,0.20)"
-                xAxisColor="rgba(255,255,255,0.20)"
-                yAxisTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "700" }}
-                xAxisLabelTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "800" }}
-                noOfSections={4}
-                maxValue={Math.max(...sleepBars.map((d) => d.value), 1)}
-                initialSpacing={12}
-                endSpacing={12}
-              />
-            </View>
-          ) : (
-            <EmptyHint text="Need a few check-ins with sleep data." />
-          )}
-        </ChartCard>
-
-        <ChartCard title="Self-rated stress" subtitle="How the user felt vs saved logs">
-          {stressBars.some((b) => b.value > 0) ? (
-            <View style={{ paddingHorizontal: CHART_SIDE_PAD }}>
-              <BarChart
-                width={chartW - CHART_SIDE_PAD * 2}
-                data={stressBars}
+                data={symptomFrequencyData}
                 barWidth={24}
-                spacing={18}
-                roundedTop
-                rulesColor="rgba(255,255,255,0.06)"
-                yAxisColor="rgba(255,255,255,0.20)"
-                xAxisColor="rgba(255,255,255,0.20)"
-                yAxisTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "700" }}
-                xAxisLabelTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "800" }}
-                noOfSections={4}
-                maxValue={Math.max(...stressBars.map((d) => d.value), 1)}
-                initialSpacing={12}
-                endSpacing={12}
-              />
-            </View>
-          ) : (
-            <EmptyHint text="Not enough self-stress data yet." />
-          )}
-        </ChartCard>
-
-        <ChartCard title="Top symptoms" subtitle="Most frequent in this range">
-          {symptomBars.length ? (
-            <View style={{ paddingHorizontal: CHART_SIDE_PAD }}>
-              <BarChart
-                width={chartW - CHART_SIDE_PAD * 2}
-                data={symptomBars}
-                barWidth={18}
                 spacing={16}
                 roundedTop
                 rulesColor="rgba(255,255,255,0.06)"
@@ -391,20 +546,25 @@ export default function HistoryScreen() {
                 yAxisTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "700" }}
                 xAxisLabelTextStyle={{ color: "rgba(255,255,255,0.75)", fontSize: 9, fontWeight: "800" }}
                 noOfSections={4}
-                maxValue={Math.max(...symptomBars.map((d) => d.value), 1)}
+                maxValue={Math.max(...symptomFrequencyData.map((d) => d.value), 1)}
                 initialSpacing={10}
                 endSpacing={10}
+                yAxisLabelPrefix=""
+                yAxisLabelSuffix=""
               />
             </View>
           ) : (
-            <EmptyHint text="No symptom data yet." />
+            <EmptyHint text="No symptom data yet" />
           )}
         </ChartCard>
       </View>
 
       <View style={{ marginTop: theme.space.xl, gap: theme.space.md }}>
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <AppText style={{ fontWeight: "900" }}>All check-ins</AppText>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <AppText style={{ fontSize: 20 }}>📋</AppText>
+            <AppText style={{ fontWeight: "900" }}>All Check-ins</AppText>
+          </View>
 
           <Pressable
             onPress={() => setFiltersOpen(true)}
@@ -418,7 +578,7 @@ export default function HistoryScreen() {
               ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
             })}
           >
-            <AppText style={{ fontWeight: "900" }}>Filters</AppText>
+            <AppText style={{ fontWeight: "900" }}>🔍 Filters</AppText>
           </Pressable>
         </View>
 
@@ -433,22 +593,25 @@ export default function HistoryScreen() {
             ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
           })}
         >
-          <AppText style={{ fontWeight: "900" }}>{searchOpen ? "Hide search" : "Search (optional)"}</AppText>
-          <AppText variant="small" style={{ opacity: 0.8 }}>
-            Search by symptom, level, date, energy or enjoyment.
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <AppText style={{ fontSize: 16 }}>🔎</AppText>
+            <AppText style={{ fontWeight: "900" }}>{searchOpen ? "Hide Search" : "Search Check-ins"}</AppText>
+          </View>
+          <AppText variant="small" style={{ opacity: 0.8, marginTop: 4 }}>
+            Search by symptom, date, stress level, energy, or enjoyment
           </AppText>
         </Pressable>
 
         {searchOpen ? <SearchBox value={searchText} onChange={setSearchText} /> : null}
 
-        <Accordion title={`High (${groups.High.length})`} open={openHigh} onToggle={() => setOpenHigh((s) => !s)}>
+        <Accordion title={`⚠️ High (${groups.High.length})`} open={openHigh} onToggle={() => setOpenHigh((s) => !s)}>
           {groups.High.map((l) => (
             <LogRow key={l.id} log={l} onOpen={openLog} onDelete={confirmDelete} />
           ))}
         </Accordion>
 
         <Accordion
-          title={`Medium (${groups.Medium.length})`}
+          title={`😐 Medium (${groups.Medium.length})`}
           open={openMedium}
           onToggle={() => setOpenMedium((s) => !s)}
         >
@@ -457,7 +620,7 @@ export default function HistoryScreen() {
           ))}
         </Accordion>
 
-        <Accordion title={`Low (${groups.Low.length})`} open={openLow} onToggle={() => setOpenLow((s) => !s)}>
+        <Accordion title={`😊 Low (${groups.Low.length})`} open={openLow} onToggle={() => setOpenLow((s) => !s)}>
           {groups.Low.map((l) => (
             <LogRow key={l.id} log={l} onOpen={openLog} onDelete={confirmDelete} />
           ))}
@@ -477,11 +640,11 @@ export default function HistoryScreen() {
               ...(Platform.OS === "web" ? ({ cursor: "pointer" } as any) : null),
             })}
           >
-            <AppText style={{ fontWeight: "900" }}>{loadingMore ? "Loading..." : "Load more"}</AppText>
+            <AppText style={{ fontWeight: "900" }}>{loadingMore ? "Loading..." : "Load More"}</AppText>
           </Pressable>
         ) : (
-          <AppText variant="small" style={{ opacity: 0.8 }}>
-            End of results.
+          <AppText variant="small" style={{ opacity: 0.8, textAlign: "center" }}>
+            End of results
           </AppText>
         )}
       </View>
@@ -500,7 +663,7 @@ export default function HistoryScreen() {
   );
 }
 
-/* ---------------- UI ---------------- */
+/* ---------------- UI Components ---------------- */
 
 function InfoCard() {
   return (
@@ -515,12 +678,45 @@ function InfoCard() {
         marginBottom: theme.space.lg,
       }}
     >
-      <AppText style={{ fontWeight: "900" }}>History & Insights</AppText>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <AppText style={{ fontSize: 20 }}>📊</AppText>
+        <AppText style={{ fontWeight: "900" }}>Analytics Dashboard</AppText>
+      </View>
       <AppText variant="sub">
-        This section shows trends in stress score, sleep, symptoms, self-rated stress, and daily context.
+        Track your stress patterns across different metrics. Lower scores indicate better stress management.
       </AppText>
-      <AppText variant="small" style={{ opacity: 0.85 }}>
-        Lower scores over time usually mean better stress management.
+    </View>
+  );
+}
+
+function DescriptiveStatCard({ title, emoji, value, description, color }: {
+  title: string;
+  emoji: string;
+  value: string;
+  description: string;
+  color: string;
+}) {
+  return (
+    <View
+      style={{
+        width: "48%",
+        backgroundColor: theme.colors.card,
+        borderWidth: 1,
+        borderColor: theme.colors.border,
+        borderRadius: theme.radius.lg,
+        padding: theme.space.lg,
+        gap: 6,
+      }}
+    >
+      <AppText variant="small">{title}</AppText>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <AppText style={{ fontSize: 20 }}>{emoji}</AppText>
+        <AppText style={{ fontWeight: "900", fontSize: 20, color: color }}>
+          {value}
+        </AppText>
+      </View>
+      <AppText variant="small" style={{ opacity: 0.6, fontSize: 11 }}>
+        {description}
       </AppText>
     </View>
   );
@@ -538,7 +734,10 @@ function InsightCard({ text }: { text: string }) {
         gap: 8,
       }}
     >
-      <AppText style={{ fontWeight: "900" }}>Quick Insight</AppText>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <AppText style={{ fontSize: 18 }}>💡</AppText>
+        <AppText style={{ fontWeight: "900" }}>Key Insight</AppText>
+      </View>
       <AppText variant="sub">{text}</AppText>
     </View>
   );
@@ -561,25 +760,6 @@ function ChipButton({ label, active, onPress }: { label: string; active: boolean
     >
       <AppText style={{ fontWeight: "900" }}>{label}</AppText>
     </Pressable>
-  );
-}
-
-function StatCard({ title, value }: { title: string; value: string }) {
-  return (
-    <View
-      style={{
-        width: "48%",
-        backgroundColor: theme.colors.card,
-        borderWidth: 1,
-        borderColor: theme.colors.border,
-        borderRadius: theme.radius.lg,
-        padding: theme.space.lg,
-        gap: 6,
-      }}
-    >
-      <AppText variant="small">{title}</AppText>
-      <AppText style={{ fontWeight: "900", fontSize: 22 }}>{value}</AppText>
-    </View>
   );
 }
 
@@ -613,8 +793,8 @@ function ChartCard({
   );
 }
 
-function EmptyHint({ text = "Not enough data yet. Log a few check-ins first." }: { text?: string }) {
-  return <AppText variant="sub">{text}</AppText>;
+function EmptyHint({ text = "Not enough data yet" }: { text?: string }) {
+  return <AppText variant="sub" style={{ textAlign: "center", padding: theme.space.xl }}>{text}</AppText>;
 }
 
 function SearchBox({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -627,14 +807,19 @@ function SearchBox({ value, onChange }: { value: string; onChange: (v: string) =
         borderRadius: theme.radius.lg,
         paddingHorizontal: 12,
         paddingVertical: 10,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 8,
       }}
     >
+      <AppText style={{ fontSize: 16 }}>🔎</AppText>
       <TextInput
         value={value}
         onChangeText={onChange}
-        placeholder="Search: symptom, date, level, energy..."
+        placeholder="Search symptoms, date, level..."
         placeholderTextColor="rgba(255,255,255,0.45)"
         style={{
+          flex: 1,
           color: theme.colors.text,
           fontSize: 14,
           fontWeight: "600",
@@ -685,7 +870,7 @@ function Accordion({
 
       {open ? (
         <View style={{ padding: theme.space.lg, paddingTop: 0, gap: theme.space.sm }}>
-          {count ? children : <AppText variant="sub" style={{ opacity: 0.75 }}>No results.</AppText>}
+          {count ? children : <AppText variant="sub" style={{ opacity: 0.75 }}>No results</AppText>}
         </View>
       ) : null}
     </View>
@@ -731,8 +916,14 @@ function LogRow({
             paddingVertical: 6,
             paddingHorizontal: 10,
             borderRadius: 999,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
           }}
         >
+          <AppText style={{ fontSize: 12 }}>
+            {log.stressLevel === "High" ? "⚠️" : log.stressLevel === "Medium" ? "😐" : "😊"}
+          </AppText>
           <AppText style={{ fontWeight: "900" }}>
             {log.stressLevel} • {log.stressScore}
           </AppText>
@@ -742,14 +933,16 @@ function LogRow({
       </View>
 
       <AppText variant="sub">
-        Sleep {log.sleepHours}h • Mood {log.mood}/5 • Self-stress {log.selfStress ?? 0}/5
+        😴 Sleep {log.sleepHours}h • 😊 Mood {log.mood}/5 • 📊 Self-stress {log.selfStress ?? 0}/5
       </AppText>
 
       <AppText variant="small" style={{ opacity: 0.82 }}>
-        {log.energyLevel || "Normal"} energy • {log.enjoyment || "Somewhat"} enjoyment • {log.symptoms.length} symptoms
+        {log.energyLevel === "Low" ? "🪫" : log.energyLevel === "High" ? "⚡" : "🔋"} {log.energyLevel || "Normal"} •
+        {log.enjoyment === "No" ? " 😞" : log.enjoyment === "Yes" ? " 🎉" : " 😐"} {log.enjoyment || "Somewhat"} •
+        🔍 {log.symptoms.length} symptoms
       </AppText>
 
-      <AppText variant="small" style={{ opacity: 0.7 }}>
+      <AppText variant="small" style={{ opacity: 0.6 }}>
         Tap to view • Long-press to delete
       </AppText>
     </Pressable>
@@ -804,25 +997,28 @@ function FilterModal({
         }}
       >
         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <AppText style={{ fontWeight: "900", fontSize: 18 }}>Filters</AppText>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <AppText style={{ fontSize: 20 }}>🔧</AppText>
+            <AppText style={{ fontWeight: "900", fontSize: 18 }}>Filters</AppText>
+          </View>
 
           <Pressable onPress={clear}>
-            <AppText style={{ fontWeight: "900", opacity: 0.9 }}>Clear</AppText>
+            <AppText style={{ fontWeight: "900", opacity: 0.9 }}>Clear all</AppText>
           </Pressable>
         </View>
 
         <ScrollView contentContainerStyle={{ gap: theme.space.lg }}>
           <View style={{ gap: 10 }}>
-            <AppText style={{ fontWeight: "900" }}>Level</AppText>
+            <AppText style={{ fontWeight: "900" }}>Stress Level</AppText>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
               {(["All", "Low", "Medium", "High"] as LevelFilter[]).map((x) => (
-                <MiniChip key={x} label={x} active={x === level} onPress={() => onSetLevel(x)} />
+                <MiniChip key={x} label={x === "Low" ? "😊 Low" : x === "Medium" ? "😐 Medium" : "⚠️ High"} active={x === level} onPress={() => onSetLevel(x)} />
               ))}
             </View>
           </View>
 
           <View style={{ gap: 10 }}>
-            <AppText style={{ fontWeight: "900" }}>Sort</AppText>
+            <AppText style={{ fontWeight: "900" }}>Sort By</AppText>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
               {(["Latest", "Highest", "Lowest"] as SortKey[]).map((x) => (
                 <MiniChip key={x} label={x} active={x === sortKey} onPress={() => onSetSort(x)} />
@@ -843,7 +1039,7 @@ function FilterModal({
               ))}
             </View>
             <AppText variant="small" style={{ opacity: 0.8 }}>
-              Select one or more symptoms to narrow results.
+              Select one or more symptoms to filter results
             </AppText>
           </View>
 
@@ -858,7 +1054,7 @@ function FilterModal({
               opacity: pressed ? 0.92 : 1,
             })}
           >
-            <AppText style={{ fontWeight: "900" }}>Apply</AppText>
+            <AppText style={{ fontWeight: "900" }}>Apply Filters</AppText>
           </Pressable>
         </ScrollView>
       </View>
@@ -886,7 +1082,7 @@ function MiniChip({ label, active, onPress }: { label: string; active: boolean; 
   );
 }
 
-/* ---------------- helpers ---------------- */
+/* ---------------- Helper Functions ---------------- */
 
 function mapDoc(d: any): LogDoc {
   const data: any = d.data();
@@ -915,9 +1111,7 @@ function formatDate(ts?: Timestamp) {
   if (!ts) return "";
   const d = ts.toDate();
   return (
-    d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
-    " " +
-    d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+    d.toLocaleDateString(undefined, { month: "short", day: "numeric" })
   );
 }
 
@@ -933,11 +1127,13 @@ function groupByLevel(logs: LogDoc[]) {
 
 function computeStats(logs: LogDoc[]) {
   const count = logs.length;
-  if (count === 0) return { count: 0, avgScore: 0, maxScore: 0, delta7: 0 };
+  if (count === 0) return { count: 0, avgScore: 0, maxScore: 0, bestMood: 0, delta7: 0 };
 
   const scores = logs.map((l) => l.stressScore);
+  const moods = logs.map((l) => l.mood);
   const avgScore = scores.reduce((a, b) => a + b, 0) / count;
   const maxScore = Math.max(...scores);
+  const bestMood = Math.max(...moods);
 
   const series = dailyAverageSeries(logs);
   const newest14 = series.slice(-14);
@@ -947,7 +1143,7 @@ function computeStats(logs: LogDoc[]) {
   const avg = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
   const delta7 = Math.round(avg(last7) - avg(prev7));
 
-  return { count, avgScore, maxScore, delta7 };
+  return { count, avgScore, maxScore, bestMood, delta7 };
 }
 
 function dailyAverageSeries(logs: LogDoc[]) {
@@ -978,18 +1174,20 @@ function buildLineSeries(logs: LogDoc[]) {
   return series.map((p) => ({ value: p.y, label: p.x }));
 }
 
-function buildDist(logs: LogDoc[]) {
-  const c = { Low: 0, Medium: 0, High: 0 } as Record<StressLevel, number>;
-  for (const l of logs) c[l.stressLevel] = (c[l.stressLevel] || 0) + 1;
+function buildPieChart(logs: LogDoc[]) {
+  const counts = { Low: 0, Medium: 0, High: 0 };
+  for (const l of logs) {
+    counts[l.stressLevel]++;
+  }
 
   return [
-    { value: c.Low, label: "Low", frontColor: theme.colors.primary },
-    { value: c.Medium, label: "Med", frontColor: theme.colors.primary },
-    { value: c.High, label: "High", frontColor: theme.colors.primary },
-  ];
+    { value: counts.Low, color: "#22c55e", text: "Low", label: "😊 Low" },
+    { value: counts.Medium, color: "#facc15", text: "Medium", label: "😐 Medium" },
+    { value: counts.High, color: "#ef4444", text: "High", label: "⚠️ High" },
+  ].filter(item => item.value > 0);
 }
 
-function buildSleepBars(logs: LogDoc[]) {
+function buildSleepVsStressBars(logs: LogDoc[]) {
   const buckets = [
     { label: "0-4h", min: 0, max: 4 },
     { label: "4-6h", min: 4, max: 6 },
@@ -1050,7 +1248,54 @@ function buildSelfStressBars(logs: LogDoc[]) {
   });
 }
 
-function buildTopSymptomsBars(logs: LogDoc[]) {
+function buildMoodVsStressBars(logs: LogDoc[]) {
+  const buckets = [
+    { label: "1", val: 1 },
+    { label: "2", val: 2 },
+    { label: "3", val: 3 },
+    { label: "4", val: 4 },
+    { label: "5", val: 5 },
+  ];
+
+  const sums = buckets.map(() => ({ sum: 0, n: 0 }));
+
+  for (const l of logs) {
+    const v = Number(l.mood || 3);
+    const i = buckets.findIndex((b) => b.val === v);
+    if (i >= 0) {
+      sums[i].sum += Number(l.stressScore || 0);
+      sums[i].n += 1;
+    }
+  }
+
+  return buckets.map((b, idx) => {
+    const avg = sums[idx].n ? sums[idx].sum / sums[idx].n : 0;
+    return {
+      label: b.label,
+      value: Number(avg.toFixed(1)),
+      frontColor: theme.colors.primary,
+    };
+  });
+}
+
+function buildEnergyVsStressBars(logs: LogDoc[]) {
+  const energyMap = { Low: 0, Normal: 0, High: 0 };
+  const energyCounts = { Low: 0, Normal: 0, High: 0 };
+
+  for (const l of logs) {
+    const energy = l.energyLevel || "Normal";
+    energyMap[energy] += l.stressScore;
+    energyCounts[energy]++;
+  }
+
+  return [
+    { label: "🪫 Low", value: energyCounts.Low ? Number((energyMap.Low / energyCounts.Low).toFixed(1)) : 0, frontColor: "#ef4444" },
+    { label: "🔋 Normal", value: energyCounts.Normal ? Number((energyMap.Normal / energyCounts.Normal).toFixed(1)) : 0, frontColor: theme.colors.primary },
+    { label: "⚡ High", value: energyCounts.High ? Number((energyMap.High / energyCounts.High).toFixed(1)) : 0, frontColor: "#22c55e" },
+  ];
+}
+
+function buildSymptomFrequencyBars(logs: LogDoc[]) {
   const counts = new Map<string, number>();
 
   for (const l of logs) {
@@ -1063,47 +1308,44 @@ function buildTopSymptomsBars(logs: LogDoc[]) {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6)
     .map(([k, v]) => ({
-      label: shortSymptom(k),
+      label: formatSymptomShort(k),
       value: v,
       frontColor: theme.colors.primary,
     }));
 }
 
-function shortSymptom(key: string) {
+function formatSymptomShort(key: string) {
   const m: Record<string, string> = {
-    headache: "Head",
-    fast_heartbeat: "Heart",
-    stomach_discomfort: "Stomach",
-    sweating: "Sweat",
-    muscle_tension: "Tension",
-    fatigue: "Fatigue",
-    overthinking: "Think",
-    irritability: "Irrit",
-    overwhelmed: "Over",
-    difficulty_focusing: "Focus",
-    anxiety: "Anx",
-    low_motivation: "Motiv",
+    headache: "🤕 Head",
+    fast_heartbeat: "💓 Heart",
+    stomach_discomfort: "🤢 Stomach",
+    sweating: "💦 Sweat",
+    muscle_tension: "💪 Tension",
+    fatigue: "😴 Fatigue",
+    overthinking: "🤔 Think",
+    irritability: "😤 Irrit",
+    overwhelmed: "😵 Over",
+    difficulty_focusing: "🎯 Focus",
+    anxiety: "😰 Anx",
+    low_motivation: "🪫 Motiv",
   };
   return m[key] || key.slice(0, 6);
 }
 
 function buildInsight(logs: LogDoc[]) {
   if (logs.length < 4) {
-    return "Log a few more check-ins to unlock stronger pattern analysis.";
+    return "Log more check-ins to see stronger pattern analysis";
   }
-
-  const eventYes = logs.filter((l) => l.stressfulEvent === true).map((l) => l.stressScore);
-  const eventNo = logs.filter((l) => l.stressfulEvent === false).map((l) => l.stressScore);
 
   const avg = (arr: number[]) =>
     arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
 
-  const avgEventYes = avg(eventYes);
-  const avgEventNo = avg(eventNo);
+  const eventYes = logs.filter((l) => l.stressfulEvent === true).map((l) => l.stressScore);
+  const eventNo = logs.filter((l) => l.stressfulEvent === false).map((l) => l.stressScore);
 
   if (eventYes.length >= 2 && eventNo.length >= 2) {
-    const diff = Math.round(avgEventYes - avgEventNo);
-    return `Stressful events seem to matter. Days marked with a stressful event are about ${diff} points higher on average.`;
+    const diff = Math.round(avg(eventYes) - avg(eventNo));
+    return `⚠️ Stressful events increase your score by ${diff} points on average`;
   }
 
   const lowEnergy = logs.filter((l) => l.energyLevel === "Low").map((l) => l.stressScore);
@@ -1111,8 +1353,16 @@ function buildInsight(logs: LogDoc[]) {
 
   if (lowEnergy.length >= 2 && highEnergy.length >= 2) {
     const diff = Math.round(avg(lowEnergy) - avg(highEnergy));
-    return `Energy level is a strong signal. Low-energy days are about ${diff} points higher in stress than high-energy days.`;
+    return `⚡ Low energy days show ${diff} points higher stress than high energy days`;
   }
 
-  return "Your recent history shows usable patterns. Keep logging consistently for stronger insights.";
+  const lowMood = logs.filter((l) => l.mood <= 2).map((l) => l.stressScore);
+  const highMood = logs.filter((l) => l.mood >= 4).map((l) => l.stressScore);
+
+  if (lowMood.length >= 2 && highMood.length >= 2) {
+    const diff = Math.round(avg(lowMood) - avg(highMood));
+    return `😊 Mood matters - low mood days have ${diff} points higher stress`;
+  }
+
+  return "Keep logging consistently for deeper insights into your stress patterns";
 }

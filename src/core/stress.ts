@@ -133,8 +133,9 @@ export function scoreStress(input: StressInput): {
   const score = Math.max(0, rawScore);
 
   let level: StressLevel = "Low";
-  if (score >= 19) level = "High";
-  else if (score >= 10) level = "Medium";
+  if (score >= 45) level = "Very High";
+  else if (score >= 30) level = "High";
+  else if (score >= 15) level = "Medium";
   else level = "Low";
 
   return {

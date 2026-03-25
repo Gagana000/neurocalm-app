@@ -62,7 +62,7 @@ const PROFESSIONAL_RESPONSES = {
 
   // Risk Levels
   critical_risk: [
-    "🚨 I'm very concerned about your safety. Please contact emergency services immediately:\n\n• Emergency: 911\n• Crisis Lifeline: 988\n• Text HOME to 741741\n\nYour safety is the priority right now. Please reach out to someone who can help.",
+    "🚨 I'm very concerned about your safety. Please contact emergency services immediately:\n\n• Emergency: 119\n• Crisis Lifeline: 1333\n• Text to home\n\nYour safety is the priority right now. Please reach out to someone who can help.",
     "What you're sharing is very serious. Please reach out to professional support immediately. Would you like me to help you find resources in your area?",
   ],
 

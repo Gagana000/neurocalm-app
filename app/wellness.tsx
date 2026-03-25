@@ -8,6 +8,7 @@ import {
   Modal,
   Animated,
   Vibration,
+  TextInput,
   Dimensions,
 } from "react-native";
 import { router } from "expo-router";
@@ -84,14 +85,12 @@ export default function WellnessHub() {
   const [isBreathing, setIsBreathing] = useState(false);
   const [breathingPhase, setBreathingPhase] = useState<"inhale" | "hold" | "exhale">("inhale");
   const [breathCount, setBreathCount] = useState(0);
-  const [showGroundingHint, setShowGroundingHint] = useState(false);
   const [groundingInput, setGroundingInput] = useState("");
   const [groundingItems, setGroundingItems] = useState<string[]>([]);
 
   const timerInterval = useRef<NodeJS.Timeout | null>(null);
   const breathingInterval = useRef<NodeJS.Timeout | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const fadeAnim = useRef(new Animated.Value(1)).current;
   const breathProgress = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -107,7 +106,6 @@ export default function WellnessHub() {
     setBreathCount(0);
     setGroundingItems([]);
     setGroundingInput("");
-    setShowGroundingHint(false);
     setModalVisible(true);
     setIsActive(true);
 
@@ -115,139 +113,94 @@ export default function WellnessHub() {
       startBreathingExercise();
     } else if (exercise.id === "grounding") {
       startGroundingExercise();
-    } else if (exercise.id === "muscle-relax" || exercise.id === "panic-rescue") {
+    } else {
       startGuidedExercise(exercise);
     }
   };
 
-  // ============= ENHANCED CALM BREATHING =============
+  // ============= CALM BREATHING =============
   const startBreathingExercise = () => {
     setIsBreathing(true);
-    let cycleCount = 0;
     let secondsLeft = 4;
+    let currentPhase: "inhale" | "hold" | "exhale" = "inhale";
+    let currentCycle = 0;
 
-    // Reset animations
     breathProgress.setValue(0);
 
     breathingInterval.current = setInterval(() => {
       secondsLeft--;
 
-      // Update progress bar for current phase
-      let progressValue = 0;
-      if (breathingPhase === "inhale") {
-        progressValue = (4 - secondsLeft) / 4;
-      } else if (breathingPhase === "hold") {
-        progressValue = (2 - secondsLeft) / 2;
-      } else {
-        progressValue = (6 - secondsLeft) / 6;
-      }
+      let totalPhaseDuration = 0;
+      if (currentPhase === "inhale") totalPhaseDuration = 4;
+      else if (currentPhase === "hold") totalPhaseDuration = 2;
+      else totalPhaseDuration = 6;
+
+      const progressValue = (totalPhaseDuration - secondsLeft) / totalPhaseDuration;
       Animated.timing(breathProgress, {
-        toValue: progressValue,
+        toValue: Math.min(1, Math.max(0, progressValue)),
         duration: 100,
         useNativeDriver: false,
       }).start();
 
-      // Animate the breathing circle
       Animated.sequence([
         Animated.timing(pulseAnim, {
-          toValue: breathingPhase === "inhale" ? 1.3 : breathingPhase === "exhale" ? 0.85 : 1.1,
-          duration: 900,
+          toValue: currentPhase === "inhale" ? 1.3 : currentPhase === "exhale" ? 0.85 : 1.1,
+          duration: 800,
           useNativeDriver: true,
         }),
         Animated.spring(pulseAnim, {
           toValue: 1,
-          friction: 3,
+          friction: 4,
           useNativeDriver: true,
         }),
       ]).start();
 
-      // Phase change logic
-      if (secondsLeft === 0) {
-        if (breathingPhase === "inhale") {
-          setBreathingPhase("hold");
+      if (secondsLeft <= 0) {
+        if (currentPhase === "inhale") {
+          currentPhase = "hold";
           secondsLeft = 2;
-          // Gentle vibration for phase transition
+          setBreathingPhase("hold");
           if (Platform.OS !== "web") Vibration.vibrate(30);
-        } else if (breathingPhase === "hold") {
-          setBreathingPhase("exhale");
+        } else if (currentPhase === "hold") {
+          currentPhase = "exhale";
           secondsLeft = 6;
-        } else if (breathingPhase === "exhale") {
-          setBreathingPhase("inhale");
+          setBreathingPhase("exhale");
+        } else if (currentPhase === "exhale") {
+          currentPhase = "inhale";
           secondsLeft = 4;
-          cycleCount++;
-          setBreathCount(cycleCount);
+          setBreathingPhase("inhale");
+          currentCycle++;
+          setBreathCount(currentCycle);
 
-          // Vibrate on breath completion
           if (Platform.OS !== "web") Vibration.vibrate(50);
 
-          // Fade animation for completion
-          Animated.sequence([
-            Animated.timing(fadeAnim, {
-              toValue: 1.2,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-            Animated.timing(fadeAnim, {
-              toValue: 1,
-              duration: 200,
-              useNativeDriver: true,
-            }),
-          ]).start();
-
-          // Provide encouraging messages
-          if (cycleCount === 3) {
+          if (currentCycle === 3) {
             toast("You're doing great! 🌟", "Notice how your body feels");
-          } else if (cycleCount === 6) {
+          } else if (currentCycle === 6) {
             toast("Halfway there! 💪", "Keep breathing deeply");
-          } else if (cycleCount === 10) {
-            if (breathingInterval.current) clearInterval(breathingInterval.current);
+          } else if (currentCycle >= 10) {
+            if (breathingInterval.current) {
+              clearInterval(breathingInterval.current);
+              breathingInterval.current = null;
+            }
             setIsBreathing(false);
             setIsActive(false);
             toast("Wonderful! ✨", "Take a moment to enjoy this calm feeling");
+            setTimeout(() => {
+              setModalVisible(false);
+              setSelectedExercise(null);
+            }, 1500);
           }
         }
       }
     }, 1000);
   };
 
-  // ============= ENHANCED GROUNDING EXERCISE =============
+  // ============= GROUNDING EXERCISE =============
   const startGroundingExercise = () => {
-    // Start with first sense: SEE
     setStepIndex(0);
-    setShowGroundingHint(true);
-  };
-
-  const handleGroundingInput = () => {
-    if (!groundingInput.trim()) {
-      toast("Take a moment", "Look around and name something you notice");
-      return;
-    }
-
-    const newItems = [...groundingItems, groundingInput];
-    setGroundingItems(newItems);
+    setGroundingItems([]);
     setGroundingInput("");
-
-    // Move to next sense
-    if (stepIndex === 0 && newItems.length >= 5) {
-      // Completed SEE, move to FEEL
-      setStepIndex(1);
-      setGroundingItems([]);
-      toast("Great! 👋", "Now let's notice what you can FEEL");
-    } else if (stepIndex === 1 && newItems.length >= 4) {
-      setStepIndex(2);
-      setGroundingItems([]);
-      toast("Well done! 👂", "Now let's notice what you can HEAR");
-    } else if (stepIndex === 2 && newItems.length >= 3) {
-      setStepIndex(3);
-      setGroundingItems([]);
-      toast("Wonderful! 👃", "Now let's notice what you can SMELL");
-    } else if (stepIndex === 3 && newItems.length >= 2) {
-      setStepIndex(4);
-      setGroundingItems([]);
-      toast("Almost there! 👅", "Now let's notice what you can TASTE");
-    } else if (stepIndex === 4 && newItems.length >= 1) {
-      completeExercise();
-    }
   };
 
   const getGroundingTitle = () => {
@@ -258,17 +211,6 @@ export default function WellnessHub() {
       case 3: return "2 Things You Can SMELL";
       case 4: return "1 Thing You Can TASTE";
       default: return "Grounding Exercise";
-    }
-  };
-
-  const getGroundingExamples = () => {
-    switch (stepIndex) {
-      case 0: return ["a lamp", "a window", "your hands", "a plant", "a book"];
-      case 1: return ["your clothes", "the chair", "the air", "your phone"];
-      case 2: return ["birds singing", "a fan", "your breathing"];
-      case 3: return ["fresh air", "coffee", "flowers"];
-      case 4: return ["water", "mint", "tea"];
-      default: return [];
     }
   };
 
@@ -283,16 +225,45 @@ export default function WellnessHub() {
     }
   };
 
-  const getGroundingRemaining = () => {
-    const needed = [5, 4, 3, 2, 1];
-    const current = groundingItems.length;
-    const totalNeeded = needed[stepIndex];
-    const remaining = totalNeeded - current;
-    return `${remaining} more to go`;
+  const getGroundingExamples = () => {
+    switch (stepIndex) {
+      case 0: return ["a lamp", "a window", "your hands", "a plant", "a book"];
+      case 1: return ["your clothes", "the chair", "the air", "your phone"];
+      case 2: return ["birds singing", "a fan", "your breathing"];
+      case 3: return ["fresh air", "coffee", "flowers"];
+      case 4: return ["water", "mint", "tea"];
+      default: return [];
+    }
+  };
+
+  const getGroundingNeeded = () => {
+    return [5, 4, 3, 2, 1][stepIndex];
+  };
+
+  const handleGroundingInput = () => {
+    if (!groundingInput.trim()) {
+      toast("Take a moment", "Look around and name something you notice");
+      return;
+    }
+
+    const needed = getGroundingNeeded();
+    const newItems = [...groundingItems, groundingInput.trim()];
+    setGroundingItems(newItems);
+    setGroundingInput("");
+
+    if (newItems.length >= needed) {
+      if (stepIndex < 4) {
+        setStepIndex(stepIndex + 1);
+        setGroundingItems([]);
+        const nextSense = ["See", "Feel", "Hear", "Smell", "Taste"][stepIndex + 1];
+        toast(`Great! 👋`, `Now let's notice what you can ${nextSense}`);
+      } else {
+        completeExercise();
+      }
+    }
   };
 
   const skipGroundingItem = () => {
-    // Auto-fill with example if user is stuck
     const examples = getGroundingExamples();
     const randomExample = examples[Math.floor(Math.random() * examples.length)];
     setGroundingInput(randomExample);
@@ -300,31 +271,26 @@ export default function WellnessHub() {
   };
 
   const startGuidedExercise = (exercise: Exercise) => {
-    if (exercise.id === "muscle-relax") {
-      let step = 0;
-      timerInterval.current = setInterval(() => {
-        if (step >= exercise.instructions.length - 1) {
-          if (timerInterval.current) clearInterval(timerInterval.current);
-          setIsActive(false);
-          toast("Muscles relaxed! 🧘", "Feel the release of tension");
-          return;
-        }
-        step++;
-        setStepIndex(step);
-      }, 8000);
-    } else if (exercise.id === "panic-rescue") {
-      let step = 0;
-      timerInterval.current = setInterval(() => {
-        if (step >= exercise.instructions.length - 1) {
-          if (timerInterval.current) clearInterval(timerInterval.current);
-          setIsActive(false);
-          toast("You're safe 💙", "That feeling will pass");
-          return;
-        }
-        step++;
-        setStepIndex(step);
-      }, 7000);
-    }
+    let step = 0;
+    const duration = exercise.id === "muscle-relax" ? 8000 : 7000;
+
+    timerInterval.current = setInterval(() => {
+      if (step >= exercise.instructions.length - 1) {
+        if (timerInterval.current) clearInterval(timerInterval.current);
+        setIsActive(false);
+        const message = exercise.id === "muscle-relax"
+          ? "Muscles relaxed! 🧘 Feel the release of tension"
+          : "You're safe 💙 That feeling will pass";
+        toast(message);
+        setTimeout(() => {
+          setModalVisible(false);
+          setSelectedExercise(null);
+        }, 1500);
+        return;
+      }
+      step++;
+      setStepIndex(step);
+    }, duration);
   };
 
   const nextStep = () => {
@@ -469,7 +435,7 @@ export default function WellnessHub() {
         <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.95)", justifyContent: "center" }}>
           <View style={{ padding: theme.space.xl, alignItems: "center", width: "100%" }}>
 
-            {/* CALM BREATHING UI - Enhanced */}
+            {/* CALM BREATHING UI */}
             {isBreathing && selectedExercise?.id === "calm-breathing" && (
               <View style={{ alignItems: "center", width: "100%" }}>
                 <AppText style={{ fontSize: 48, marginBottom: 20 }}>🌊</AppText>
@@ -477,7 +443,6 @@ export default function WellnessHub() {
                   Calm Breathing
                 </AppText>
 
-                {/* Animated Breathing Circle */}
                 <Animated.View
                   style={{
                     width: 260,
@@ -498,10 +463,6 @@ export default function WellnessHub() {
                       backgroundColor: theme.colors.primary,
                       justifyContent: "center",
                       alignItems: "center",
-                      shadowColor: theme.colors.primary,
-                      shadowOffset: { width: 0, height: 0 },
-                      shadowOpacity: 0.5,
-                      shadowRadius: 20,
                     }}
                   >
                     <AppText style={{ fontSize: 48, fontWeight: "900", color: "white" }}>
@@ -513,14 +474,13 @@ export default function WellnessHub() {
                   </View>
                 </Animated.View>
 
-                {/* Progress Bar */}
                 <View style={{ width: "80%", marginVertical: 20 }}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 8 }}>
                     <AppText style={{ fontSize: 14, color: theme.colors.primary }}>
                       {getBreathingText()}
                     </AppText>
                     <AppText style={{ fontSize: 14, fontWeight: "700", color: theme.colors.primary }}>
-                      Breath {breathCount}/10
+                      Breath {Math.min(breathCount, 10)}/10
                     </AppText>
                   </View>
                   <View style={{ height: 4, backgroundColor: `${theme.colors.primary}30`, borderRadius: 2 }}>
@@ -538,7 +498,6 @@ export default function WellnessHub() {
                   </View>
                 </View>
 
-                {/* Guidance Text */}
                 <AppText style={{ fontSize: 16, textAlign: "center", opacity: 0.7, marginTop: 10, lineHeight: 24 }}>
                   {breathingPhase === "inhale" && "Fill your lungs with fresh air..."}
                   {breathingPhase === "hold" && "Pause and notice the stillness..."}
@@ -547,7 +506,7 @@ export default function WellnessHub() {
               </View>
             )}
 
-            {/* GROUNDING EXERCISE UI - Enhanced Interactive */}
+            {/* GROUNDING EXERCISE UI - Fixed with TextInput */}
             {!isBreathing && selectedExercise?.id === "grounding" && (
               <View style={{ alignItems: "center", width: "100%" }}>
                 <AppText style={{ fontSize: 56, marginBottom: 16 }}>{getGroundingIcon()}</AppText>
@@ -555,17 +514,12 @@ export default function WellnessHub() {
                   {getGroundingTitle()}
                 </AppText>
 
-                {/* Progress */}
                 <View style={{ marginVertical: 16 }}>
                   <AppText style={{ fontSize: 14, opacity: 0.7 }}>
-                    {groundingItems.length} / {stepIndex === 0 ? 5 : stepIndex === 1 ? 4 : stepIndex === 2 ? 3 : stepIndex === 3 ? 2 : 1} found
-                  </AppText>
-                  <AppText style={{ fontSize: 12, opacity: 0.5, marginTop: 4 }}>
-                    {getGroundingRemaining()}
+                    {groundingItems.length} / {getGroundingNeeded()} found
                   </AppText>
                 </View>
 
-                {/* List of found items */}
                 {groundingItems.length > 0 && (
                   <View
                     style={{
@@ -585,7 +539,6 @@ export default function WellnessHub() {
                   </View>
                 )}
 
-                {/* Input Area */}
                 <View style={{ width: "100%", marginVertical: 20 }}>
                   <View
                     style={{
@@ -593,28 +546,27 @@ export default function WellnessHub() {
                       borderWidth: 1,
                       borderColor: theme.colors.border,
                       borderRadius: theme.radius.xl,
-                      padding: theme.space.md,
+                      paddingHorizontal: theme.space.md,
+                      paddingVertical: Platform.OS === "ios" ? 12 : 8,
                       flexDirection: "row",
                       alignItems: "center",
                       gap: 10,
                     }}
                   >
                     <AppText style={{ fontSize: 20 }}>{getGroundingIcon()}</AppText>
-                    <input
-                      type="text"
+                    <TextInput
                       value={groundingInput}
-                      onChange={(e: any) => setGroundingInput(e.target.value)}
-                      onKeyPress={(e: any) => e.key === "Enter" && handleGroundingInput()}
+                      onChangeText={setGroundingInput}
                       placeholder={`Type what you ${stepIndex === 0 ? "see" : stepIndex === 1 ? "feel" : stepIndex === 2 ? "hear" : stepIndex === 3 ? "smell" : "taste"}...`}
+                      placeholderTextColor="rgba(255,255,255,0.4)"
                       style={{
                         flex: 1,
-                        backgroundColor: "transparent",
                         color: theme.colors.text,
                         fontSize: 14,
-                        outline: "none",
-                        border: "none",
-                        fontFamily: "inherit",
+                        paddingVertical: Platform.OS === "ios" ? 12 : 8,
                       }}
+                      onSubmitEditing={handleGroundingInput}
+                      returnKeyType="done"
                     />
                   </View>
 
@@ -679,70 +631,84 @@ export default function WellnessHub() {
                     {selectedExercise.instructions[stepIndex]}
                   </AppText>
                 </View>
-              </View>
-            )}
 
-            {/* Control Buttons */}
-            {!isBreathing && selectedExercise && selectedExercise.id !== "grounding" && (
-              <View style={{ flexDirection: "row", gap: theme.space.md, marginTop: 20 }}>
-                {stepIndex > 0 && (
-                  <Pressable
-                    onPress={previousStep}
-                    style={({ pressed }) => ({
-                      borderWidth: 1,
-                      borderColor: theme.colors.border,
-                      borderRadius: theme.radius.md,
-                      paddingVertical: 12,
-                      paddingHorizontal: 24,
-                      opacity: pressed ? 0.9 : 1,
-                    })}
-                  >
-                    <AppText style={{ fontWeight: "700" }}>← Back</AppText>
-                  </Pressable>
-                )}
+                <View style={{ flexDirection: "row", gap: theme.space.md }}>
+                  {stepIndex > 0 && (
+                    <Pressable
+                      onPress={previousStep}
+                      style={({ pressed }) => ({
+                        borderWidth: 1,
+                        borderColor: theme.colors.border,
+                        borderRadius: theme.radius.md,
+                        paddingVertical: 12,
+                        paddingHorizontal: 24,
+                        opacity: pressed ? 0.9 : 1,
+                      })}
+                    >
+                      <AppText style={{ fontWeight: "700" }}>← Back</AppText>
+                    </Pressable>
+                  )}
 
-                {stepIndex < selectedExercise.instructions.length - 1 ? (
-                  <Pressable
-                    onPress={nextStep}
-                    style={({ pressed }) => ({
-                      backgroundColor: theme.colors.primary,
-                      borderRadius: theme.radius.md,
-                      paddingVertical: 12,
-                      paddingHorizontal: 32,
-                      opacity: pressed ? 0.9 : 1,
-                    })}
-                  >
-                    <AppText style={{ fontWeight: "700", color: "white" }}>Next →</AppText>
-                  </Pressable>
-                ) : (
-                  <Pressable
-                    onPress={completeExercise}
-                    style={({ pressed }) => ({
-                      backgroundColor: "#22c55e",
-                      borderRadius: theme.radius.md,
-                      paddingVertical: 12,
-                      paddingHorizontal: 32,
-                      opacity: pressed ? 0.9 : 1,
-                    })}
-                  >
-                    <AppText style={{ fontWeight: "700", color: "white" }}>Complete ✓</AppText>
-                  </Pressable>
-                )}
+                  {stepIndex < selectedExercise.instructions.length - 1 ? (
+                    <Pressable
+                      onPress={nextStep}
+                      style={({ pressed }) => ({
+                        backgroundColor: theme.colors.primary,
+                        borderRadius: theme.radius.md,
+                        paddingVertical: 12,
+                        paddingHorizontal: 32,
+                        opacity: pressed ? 0.9 : 1,
+                      })}
+                    >
+                      <AppText style={{ fontWeight: "700", color: "white" }}>Next →</AppText>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      onPress={completeExercise}
+                      style={({ pressed }) => ({
+                        backgroundColor: "#22c55e",
+                        borderRadius: theme.radius.md,
+                        paddingVertical: 12,
+                        paddingHorizontal: 32,
+                        opacity: pressed ? 0.9 : 1,
+                      })}
+                    >
+                      <AppText style={{ fontWeight: "700", color: "white" }}>Complete ✓</AppText>
+                    </Pressable>
+                  )}
+                </View>
               </View>
             )}
 
             {/* Exit Button */}
-            <Pressable
-              onPress={stopExercise}
-              style={({ pressed }) => ({
-                marginTop: 24,
-                paddingVertical: 10,
-                paddingHorizontal: 20,
-                opacity: pressed ? 0.9 : 1,
-              })}
-            >
-              <AppText variant="small" style={{ opacity: 0.5 }}>Exit</AppText>
-            </Pressable>
+            {!isBreathing && selectedExercise?.id !== "grounding" && selectedExercise?.id !== "calm-breathing" && (
+              <Pressable
+                onPress={stopExercise}
+                style={({ pressed }) => ({
+                  marginTop: 24,
+                  paddingVertical: 10,
+                  paddingHorizontal: 20,
+                  opacity: pressed ? 0.9 : 1,
+                })}
+              >
+                <AppText variant="small" style={{ opacity: 0.5 }}>Exit</AppText>
+              </Pressable>
+            )}
+
+            {/* Exit button for breathing and grounding */}
+            {(isBreathing || selectedExercise?.id === "grounding") && (
+              <Pressable
+                onPress={stopExercise}
+                style={({ pressed }) => ({
+                  marginTop: 24,
+                  paddingVertical: 10,
+                  paddingHorizontal: 20,
+                  opacity: pressed ? 0.9 : 1,
+                })}
+              >
+                <AppText variant="small" style={{ opacity: 0.5 }}>Exit Exercise</AppText>
+              </Pressable>
+            )}
           </View>
         </View>
       </Modal>

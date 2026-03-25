@@ -14,100 +14,30 @@ import {
 } from "react-native";
 import { AppText } from "../src/ui/AppText";
 import { theme } from "../src/ui/theme";
-import {
-  getEnhancedBotReply,
-  getGreeting,
-  SessionContext,
-  generateClinicalSummary,
-  RiskLevel
-} from "../src/chatbot/enhancedBrain";
 import { QuickReplies } from "../src/ui/QuickReplies";
 import { auth } from "../src/firebase/firebaseConfig";
 import { collection, query, where, getDocs, orderBy, limit, doc, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../src/firebase/firebaseConfig";
+
+// Import the advanced emotional intelligence chatbot
+import {
+  getAdvancedBotReply,
+  EmotionalSessionManager,
+  getGreeting,
+  UserProfile
+} from "../src/chatbot/emotionalIntelligence";
 
 type Message = {
   id: string;
   role: "user" | "assistant";
   text: string;
   timestamp: Date;
-  riskLevel?: RiskLevel;
+  riskLevel?: string;
+  emotion?: string;
 };
 
-// Simplified Session Manager (without Firestore saves to avoid errors)
-class SimpleSessionManager {
-  private currentSession: SessionContext | null = null;
-
-  createSession(userId: string, userName?: string): SessionContext {
-    this.currentSession = {
-      userId,
-      userName,
-      sessionStart: new Date(),
-      messageCount: 0,
-      topicsDiscussed: [],
-      riskLevel: "Low",
-    };
-    return this.currentSession;
-  }
-
-  getSession(): SessionContext | null {
-    return this.currentSession;
-  }
-
-  updateSession(updates: Partial<SessionContext>): SessionContext {
-    if (!this.currentSession) {
-      this.currentSession = {
-        userId: "unknown",
-        sessionStart: new Date(),
-        messageCount: 0,
-        topicsDiscussed: [],
-        riskLevel: "Low",
-      };
-    }
-    this.currentSession = { ...this.currentSession, ...updates };
-    return this.currentSession;
-  }
-
-  addTopic(topic: string) {
-    if (this.currentSession && !this.currentSession.topicsDiscussed.includes(topic)) {
-      this.currentSession.topicsDiscussed.push(topic);
-    }
-  }
-
-  incrementMessageCount() {
-    if (this.currentSession) {
-      this.currentSession.messageCount++;
-    }
-  }
-
-  endSession(): string {
-    if (!this.currentSession) return "";
-    const summary = generateClinicalSummary(this.currentSession);
-    this.currentSession = null;
-    return summary;
-  }
-
-  getRiskAlert(): { severity: string; action: string } | null {
-    if (!this.currentSession) return null;
-
-    switch (this.currentSession.riskLevel) {
-      case "Critical":
-        return {
-          severity: "🚨 IMMEDIATE ACTION REQUIRED",
-          action: "Please contact emergency services immediately. Your safety is the priority.\n\n• Emergency: 911\n• Crisis Lifeline: 988\n• Text HOME to 741741"
-        };
-      case "High":
-        return {
-          severity: "⚠️ HIGH RISK",
-          action: "You're experiencing significant distress. Please consider reaching out to a mental health professional. Would you like help finding resources?"
-        };
-      default:
-        return null;
-    }
-  }
-}
-
-const sessionManager = new SimpleSessionManager();
+// Session Manager Instance
+const sessionManager = new EmotionalSessionManager();
 
 export default function ChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -120,6 +50,7 @@ export default function ChatScreen() {
   const [clinicalSummary, setClinicalSummary] = useState("");
   const [showRiskAlert, setShowRiskAlert] = useState(false);
   const [riskAlert, setRiskAlert] = useState({ severity: "", action: "" });
+  const [userEmotion, setUserEmotion] = useState<string>("");
   const flatListRef = useRef<FlatList>(null);
   const uid = auth.currentUser?.uid;
 
@@ -135,14 +66,17 @@ export default function ChatScreen() {
           {
             id: "1",
             role: "assistant",
-            text: "Hello. I'm your mental health support assistant. Please log in to continue. 👋",
+            text: "Hello! I'm your emotional wellness companion. Please log in to continue. 👋",
             timestamp: new Date(),
           },
         ]);
         return;
       }
 
-      // Get user name
+      // Initialize session
+      sessionManager.createSession(uid, userName);
+
+      // Get user name from Firestore
       let name = "";
       try {
         const userQuery = query(collection(db, "users"), where("uid", "==", uid));
@@ -151,6 +85,7 @@ export default function ChatScreen() {
           name = doc.data().name || "";
         });
         setUserName(name);
+        sessionManager.updateSession(uid, { name });
       } catch (error) {
         console.log("Error loading user name:", error);
       }
@@ -174,18 +109,15 @@ export default function ChatScreen() {
               stressLevel: latest.stressLevel || "Low",
               recentScore: latest.stressScore || 0,
             });
+            sessionManager.updateSession(uid, { stressLevel: stressLevel as any });
           }
         }
       } catch (error) {
         console.log("Error loading stress data:", error);
       }
 
-      // Initialize session
-      const session = sessionManager.createSession(uid, name);
-      sessionManager.updateSession({ stressLevel: stressLevel as any });
-
-      // Set welcome message
-      const greeting = getGreeting(name || "");
+      // Set welcome message with personalized greeting
+      const greeting = getGreeting(name || undefined);
       setMessages([
         {
           id: "1",
@@ -200,7 +132,7 @@ export default function ChatScreen() {
         {
           id: "1",
           role: "assistant",
-          text: "Hello. I'm your mental health support assistant. How are you feeling today? 💙",
+          text: "Hello! I'm your emotional wellness companion. How are you feeling today? 💙",
           timestamp: new Date(),
         },
       ]);
@@ -215,13 +147,19 @@ export default function ChatScreen() {
       return;
     }
 
-    console.log("Sending message:", messageToSend); // Debug log
+    if (!uid) {
+      setMessages(prev => [...prev, {
+        id: Date.now().toString(),
+        role: "assistant",
+        text: "Please log in to continue the conversation.",
+        timestamp: new Date(),
+      }]);
+      return;
+    }
 
-    const session = sessionManager.getSession();
+    const session = sessionManager.getSession(uid);
     if (!session) {
-      console.log("No session, creating new one");
-      const newSession = sessionManager.createSession(uid || "unknown", userName);
-      sessionManager.updateSession({ stressLevel: userStressData?.stressLevel || "Low" });
+      sessionManager.createSession(uid, userName);
     }
 
     const userMsg: Message = {
@@ -237,32 +175,22 @@ export default function ChatScreen() {
     }
     setIsTyping(true);
 
-    sessionManager.incrementMessageCount();
-
-    // Detect topics
-    const topics = ["depression", "anxiety", "stress", "sleep", "coping", "safety"];
-    topics.forEach(topic => {
-      if (messageToSend.toLowerCase().includes(topic)) {
-        sessionManager.addTopic(topic);
-      }
-    });
-
     // Scroll to bottom
     setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
 
-    // Get bot reply
+    // Get bot reply with emotional intelligence
     setTimeout(() => {
-      const currentSession = sessionManager.getSession();
-      const replyText = getEnhancedBotReply(messageToSend, currentSession || undefined);
+      const currentSession = sessionManager.getSession(uid);
+      const replyText = getAdvancedBotReply(messageToSend, currentSession);
 
-      console.log("Bot reply:", replyText); // Debug log
+      // Update session after response
+      const updatedSession = sessionManager.getSession(uid);
 
-      // Update risk level based on reply content
-      if (replyText.includes("emergency") || replyText.includes("crisis") || replyText.includes("911")) {
-        sessionManager.updateSession({ riskLevel: "High" });
-      }
-
-      const updatedSession = sessionManager.getSession();
+      // Detect if this is a crisis response
+      const isCrisisResponse = replyText.includes("emergency") ||
+                               replyText.includes("988") ||
+                               replyText.includes("911") ||
+                               replyText.includes("Crisis Lifeline");
 
       const assistantMsg: Message = {
         id: Date.now().toString() + "-assistant",
@@ -275,31 +203,50 @@ export default function ChatScreen() {
       setMessages((prev) => [...prev, assistantMsg]);
       setIsTyping(false);
 
-      // Check for risk alert
-      const alert = sessionManager.getRiskAlert();
-      if (alert) {
+      // Show risk alert if needed
+      if (isCrisisResponse && (updatedSession?.riskLevel === "Critical" || updatedSession?.riskLevel === "High")) {
+        const alert = {
+          severity: updatedSession?.riskLevel === "Critical"
+            ? "🚨 IMMEDIATE ACTION REQUIRED"
+            : "⚠️ HIGH RISK DETECTED",
+          action: updatedSession?.riskLevel === "Critical"
+            ? "Please contact emergency services immediately.\n\n• Emergency: 911\n• Crisis Lifeline: 988\n• Text HOME to 741741\n\nYour safety is the priority."
+            : "You're experiencing significant distress. Please consider reaching out to a mental health professional.\n\n• Crisis Lifeline: 988\n• Crisis Text Line: Text HOME to 741741"
+        };
         setRiskAlert(alert);
         setShowRiskAlert(true);
       }
 
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-    }, 500); // Reduced delay for better response
+    }, 600);
   };
 
   const endSession = () => {
-    const summary = sessionManager.endSession();
+    if (!uid) return;
+    const summary = sessionManager.endSession(uid);
     setClinicalSummary(summary);
     setShowSummary(true);
   };
 
   const handleQuickReply = (text: string) => {
     setInput(text);
-    // Auto-send after setting input
     setTimeout(() => sendMessage(text), 50);
   };
 
   const renderItem = ({ item }: { item: Message }) => {
     const isUser = item.role === "user";
+
+    // Get emotion emoji for bot messages
+    const getEmotionEmoji = () => {
+      if (isUser) return null;
+      if (item.text.includes("😊") || item.text.includes("happy") || item.text.includes("great")) return "😊";
+      if (item.text.includes("😢") || item.text.includes("sad")) return "😢";
+      if (item.text.includes("😠") || item.text.includes("angry")) return "😠";
+      if (item.text.includes("😫") || item.text.includes("stressed")) return "😫";
+      if (item.text.includes("😰") || item.text.includes("anxious")) return "😰";
+      if (item.text.includes("😴") || item.text.includes("tired")) return "😴";
+      return "💙";
+    };
 
     return (
       <View
@@ -314,6 +261,15 @@ export default function ChatScreen() {
           borderColor: theme.colors.border,
         }}
       >
+        {!isUser && (
+          <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
+            <AppText style={{ fontSize: 14, marginRight: 6 }}>{getEmotionEmoji()}</AppText>
+            <AppText variant="small" style={{ opacity: 0.6, fontSize: 10 }}>
+              Wellness Assistant
+            </AppText>
+          </View>
+        )}
+
         <AppText
           style={{
             fontWeight: "500",
@@ -323,6 +279,7 @@ export default function ChatScreen() {
         >
           {item.text}
         </AppText>
+
         {item.riskLevel && item.riskLevel !== "Low" && (
           <View
             style={{
@@ -343,6 +300,7 @@ export default function ChatScreen() {
             </AppText>
           </View>
         )}
+
         <AppText
           variant="small"
           style={{
@@ -375,7 +333,7 @@ export default function ChatScreen() {
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <ActivityIndicator size="small" color={theme.colors.primary} />
           <AppText variant="small" style={{ opacity: 0.7 }}>
-            Processing...
+            Listening...
           </AppText>
         </View>
       </View>
@@ -397,24 +355,30 @@ export default function ChatScreen() {
         }}
       >
         <View>
-          <AppText style={{ fontWeight: "900", fontSize: 20 }}>Wellness Assistant</AppText>
-          <AppText variant="small" style={{ opacity: 0.7 }}>
-            Professional mental health support
-          </AppText>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <AppText style={{ fontSize: 24 }}>🤖</AppText>
+            <View>
+              <AppText style={{ fontWeight: "900", fontSize: 18 }}>Emotional Companion</AppText>
+              <AppText variant="small" style={{ opacity: 0.6, fontSize: 11 }}>
+                Here for all your feelings
+              </AppText>
+            </View>
+          </View>
         </View>
+
         <Pressable
           onPress={endSession}
           style={({ pressed }) => ({
-            backgroundColor: "rgba(255,90,106,0.2)",
+            backgroundColor: "rgba(255,90,106,0.15)",
             paddingHorizontal: 12,
             paddingVertical: 6,
             borderRadius: 20,
             borderWidth: 1,
-            borderColor: theme.colors.danger,
+            borderColor: "rgba(255,90,106,0.3)",
             opacity: pressed ? 0.8 : 1,
           })}
         >
-          <AppText variant="small" style={{ fontWeight: "700", color: theme.colors.danger }}>
+          <AppText variant="small" style={{ fontWeight: "600", color: theme.colors.danger }}>
             End Session
           </AppText>
         </Pressable>
@@ -427,7 +391,7 @@ export default function ChatScreen() {
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.bg }}>
         <View style={{ flex: 1, justifyContent: "center", alignItems: "center", gap: 16 }}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
-          <AppText variant="sub">Loading your wellness assistant...</AppText>
+          <AppText variant="sub">Loading your emotional companion...</AppText>
         </View>
       </SafeAreaView>
     );
@@ -477,7 +441,7 @@ export default function ChatScreen() {
             <TextInput
               value={input}
               onChangeText={setInput}
-              placeholder="Type your message..."
+              placeholder="How are you feeling today?"
               placeholderTextColor="rgba(255,255,255,0.4)"
               multiline
               style={{
@@ -521,10 +485,11 @@ export default function ChatScreen() {
               opacity: 0.5,
               textAlign: "center",
               marginBottom: theme.space.md,
-              fontSize: 11,
+              fontSize: 10,
             }}
           >
-            I'm here to help, not replace professional care. For emergencies, contact emergency services.
+            I'm here to support you, not replace professional care.
+            For emergencies, contact 911 or 988.
           </AppText>
         </View>
       </KeyboardAvoidingView>
@@ -536,12 +501,14 @@ export default function ChatScreen() {
         animationType="slide"
         onRequestClose={() => setShowRiskAlert(false)}
       >
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", padding: theme.space.xl }}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.9)", justifyContent: "center", padding: theme.space.xl }}>
           <View style={{ backgroundColor: theme.colors.card, borderRadius: theme.radius.xl, padding: theme.space.xl }}>
             <AppText style={{ fontWeight: "900", fontSize: 20, color: theme.colors.danger, marginBottom: 16 }}>
               {riskAlert.severity}
             </AppText>
-            <AppText style={{ marginBottom: 24, lineHeight: 22 }}>{riskAlert.action}</AppText>
+            <AppText style={{ marginBottom: 24, lineHeight: 22, fontSize: 15 }}>
+              {riskAlert.action}
+            </AppText>
             <Pressable
               onPress={() => setShowRiskAlert(false)}
               style={{ backgroundColor: theme.colors.primary, borderRadius: theme.radius.md, padding: 14, alignItems: "center" }}
@@ -552,18 +519,21 @@ export default function ChatScreen() {
         </View>
       </Modal>
 
-      {/* Clinical Summary Modal */}
+      {/* Session Summary Modal */}
       <Modal
         visible={showSummary}
         transparent
         animationType="slide"
         onRequestClose={() => setShowSummary(false)}
       >
-        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", padding: theme.space.xl }}>
+        <View style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.9)", justifyContent: "center", padding: theme.space.xl }}>
           <View style={{ backgroundColor: theme.colors.card, borderRadius: theme.radius.xl, padding: theme.space.xl, maxHeight: "80%" }}>
-            <AppText style={{ fontWeight: "900", fontSize: 20, marginBottom: 16 }}>Session Summary</AppText>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 16 }}>
+              <AppText style={{ fontSize: 24 }}>📊</AppText>
+              <AppText style={{ fontWeight: "900", fontSize: 20 }}>Session Summary</AppText>
+            </View>
             <ScrollView showsVerticalScrollIndicator={false}>
-              <AppText style={{ fontFamily: Platform.OS === "ios" ? "Courier" : "monospace", fontSize: 12, lineHeight: 18 }}>
+              <AppText style={{ fontFamily: Platform.OS === "ios" ? "Courier" : "monospace", fontSize: 12, lineHeight: 18, whiteSpace: "pre-wrap" as any }}>
                 {clinicalSummary}
               </AppText>
             </ScrollView>

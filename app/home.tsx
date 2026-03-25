@@ -277,7 +277,7 @@ export default function HomeScreen() {
                 {latest ? latest.stressScore : "—"}
               </AppText>
               <AppText variant="small" style={{ opacity: 0.6, fontSize: 12, marginTop: 2 }}>
-                Stress Score (0-100)
+                Stress Score (0-50)
               </AppText>
             </View>
 

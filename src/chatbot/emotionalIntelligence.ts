@@ -680,5 +680,4 @@ export function getGreeting(name?: string, emotion?: Emotion): string {
     `Welcome${name ? ` ${name}` : ''}! 🌟 I'm here to listen without judgment. How can I support you today?`
   ];
 
-  return greetings[Math.floor(Math.random() * greetings.length)];
-}
+  return greetings[Math.floor(Math.random() * greetin
